@@ -1,10 +1,7 @@
+streamlit
+pandas
 requests
 beautifulsoup4
-pandas
-sqlalchemy
-streamlit
-plotly
-selenium
 lxml
+sqlalchemy
 tqdm
-python-dotenv
