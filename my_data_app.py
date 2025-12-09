@@ -1,16 +1,15 @@
 # streamlit_app.py
 import streamlit as st
 import pandas as pd
-import os
+import sqlite3
 from sqlalchemy import create_engine
-import requests
-from bs4 import BeautifulSoup
 import time
-
-st.set_page_config(page_title="Coinafrica Scraper & Dashboard", layout="wide")
+from bs4 import BeautifulSoup
+import requests
+from urllib.parse import urljoin
 
 # =========================
-# Scraper Functions
+# Fonctions de scraping
 # =========================
 def get_page(url):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -46,7 +45,7 @@ def scrape_generic(url_pattern, pages, category_name):
                 data.append({
                     "category": category_name,
                     "type": name,
-                    "price": price,
+                    "raw_price": price,
                     "address": city,
                     "image_link": img_url,
                     "source_url": url
@@ -57,30 +56,50 @@ def scrape_generic(url_pattern, pages, category_name):
     df = pd.DataFrame(data)
     if not df.empty:
         df.drop_duplicates(inplace=True)
+        if df['raw_price'].eq(0).all() is False:
+            df['raw_price'] = df['raw_price'].replace(0, df['raw_price'].mean())
     return df
 
 # =========================
-# Dashboard Cleaning
+# BASE DE DONNÉES SQLite
+# =========================
+DB_URI = "sqlite:///coinafrica.db"
+engine = create_engine(DB_URI, echo=False)
+
+def insert_rows(df):
+    expected_cols = ["category","type","raw_price","address","image_link","source_url"]
+    for col in expected_cols:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[expected_cols]
+    df.to_sql("listings", engine, if_exists="append", index=False)
+
+def read_all():
+    return pd.read_sql_table("listings", engine)
+
+# =========================
+# Nettoyage et normalisation
 # =========================
 def normalize_type(text):
     t = str(text).lower()
     if "chauss" in t: return "shoes"
-    if "vetem" in t or "vêt" in t: return "clothes"
+    if "vetem" in t or "vêt" in t or "t-shirt" in t or "pantalon" in t: return "clothes"
     return t
 
 def clean_dataframe(df):
     df = df.copy()
+    df['price'] = pd.to_numeric(df['raw_price'], errors='coerce')
     df['type_norm'] = df['type'].apply(normalize_type)
     df['address'] = df['address'].fillna('').str.strip()
     df['image_link'] = df['image_link'].fillna('')
     return df
 
 # =========================
-# Streamlit App
+# STREAMLIT APP
 # =========================
-st.title("Coinafrica — Scraper, Dashboard & Téléchargement CSV")
+st.title("Coinafrica — Scraper & Dashboard")
 
-tabs = st.tabs(["Scraper", "Télécharger CSV existants", "Dashboard", "Formulaires"])
+tabs = st.tabs(["Scraper", "Importer CSV", "Dashboard", "Formulaires"])
 
 # ---------- Onglet 1 : Scraper ----------
 with tabs[0]:
@@ -88,8 +107,9 @@ with tabs[0]:
     pages = st.number_input("Nombre de pages par catégorie", min_value=1, max_value=20, value=2)
 
     if st.button("Scraper toutes les catégories"):
-        st.info("Scraping en cours...")
+        st.info("Scraping en cours, veuillez patienter...")
         all_df = pd.DataFrame()
+        # Définir les URL
         urls = {
             "vetements-homme": "https://sn.coinafrique.com/categorie/vetements-homme?page={page}",
             "vetements-enfants": "https://sn.coinafrique.com/categorie/vetements-enfants?page={page}",
@@ -100,13 +120,9 @@ with tabs[0]:
             df_cat = scrape_generic(url, pages, cat)
             all_df = pd.concat([all_df, df_cat], ignore_index=True)
         if not all_df.empty:
-            st.success(f"{len(all_df)} annonces récupérées.")
+            insert_rows(all_df)
+            st.success(f"{len(all_df)} annonces ajoutées à la base.")
             st.dataframe(all_df.head(50))
-            # Sauvegarder CSV pour téléchargement
-            if not os.path.exists("data"):
-                os.makedirs("data")
-            all_df.to_csv(f"data/coinafrica_scraped.csv", index=False)
-            st.success("CSV sauvegardé dans le dossier 'data' pour téléchargement.")
 
 # ---------- Onglet 2 : Télécharger CSV ----------
 with tabs[1]:
@@ -120,14 +136,14 @@ with tabs[1]:
         for f in files:
             file_path = os.path.join(data_folder, f)
             with open(file_path, "rb") as file:
-                st.download_button(label=f"Télécharger {f}", data=file, file_name=f, mime="text/csv")
+                st.download_button(label=f"Télécharger {f}", data=file, file_name=f, mime="csv")
 
 # ---------- Onglet 3 : Dashboard ----------
 with tabs[2]:
-    st.header("Dashboard des données")
-    csv_file = st.selectbox("Sélectionner un CSV pour le dashboard", options=os.listdir("data") if os.path.exists("data") else [])
-    if csv_file:
-        df = pd.read_csv(os.path.join("data", csv_file))
+    st.header("Dashboard des données nettoyées")
+    df = read_all()
+    st.write(f"Données totales : {len(df)} lignes")
+    if len(df) > 0:
         df_clean = clean_dataframe(df)
         st.subheader("Aperçu des annonces")
         st.dataframe(df_clean.head(200))
@@ -135,6 +151,14 @@ with tabs[2]:
         st.metric("Prix moyen", f"{df_clean['price'].mean():.2f}")
         st.write("Répartition par type")
         st.bar_chart(df_clean['type_norm'].value_counts())
+
+        st.subheader("Filtrer par catégorie / type")
+        cat = st.selectbox("Catégorie", options=["all"] + sorted(df_clean['category'].unique()))
+        t = st.selectbox("Type", options=["all"] + sorted(df_clean['type_norm'].unique()))
+        filtered = df_clean.copy()
+        if cat != "all": filtered = filtered[filtered['category']==cat]
+        if t != "all": filtered = filtered[filtered['type_norm']==t]
+        st.dataframe(filtered)
 
 # ---------- Onglet 4 : Formulaires ----------
 with tabs[3]:
