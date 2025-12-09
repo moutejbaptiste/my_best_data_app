@@ -1,47 +1,30 @@
-import streamlit as st
+# db.py
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, MetaData, Table
+from sqlalchemy.orm import sessionmaker
 import pandas as pd
 
+DB_URI = "sqlite:///coinafrica.db"
 
-st.markdown("<h1 style='text-align: center; color: black;'>MY DATA APP</h1>", unsafe_allow_html=True)
+engine = create_engine(DB_URI, echo=False)
+metadata = MetaData()
 
-st.markdown("""
-This app allows you to download scraped data on motocycles from expat-dakar 
-* **Python libraries:** base64, pandas, streamlit
-* **Data source:** [Expat-Dakar](https://www.expat-dakar.com/).
-""")
+listings = Table(
+    "listings", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("category", String(100)),   # e.g., vetements-homme
+    Column("type", String(200)),       # V1: type clothes/shoes
+    Column("raw_price", String(100)),
+    Column("price", Float, nullable=True),
+    Column("address", String(255)),
+    Column("image_link", Text),
+    Column("source_url", Text)
+)
 
+def init_db():
+    metadata.create_all(engine)
 
-# Function for loading the data
-def load_(dataframe, title, key) :
-    st.markdown("""
-    <style>
-    div.stButton {text-align:center}
-    </style>""", unsafe_allow_html=True)
+def insert_rows(df: pd.DataFrame):
+    df.to_sql("listings", engine, if_exists="append", index=False)
 
-    if st.button(title,key):
-      
-        st.subheader('Display data dimension')
-        st.write('Data dimension: ' + str(dataframe.shape[0]) + ' rows and ' + str(dataframe.shape[1]) + ' columns.')
-        st.dataframe(dataframe)
-
-# define some styles rely to the box
-st.markdown('''<style> .stButton>button {
-    font-size: 12px;
-    height: 3em;
-    width: 25em;
-}</style>''', unsafe_allow_html=True)
-
-          
-# load the data
-load_(pd.read_csv('data/motos_scooters1.csv'), 'Motocycles data 1', '1')
-load_(pd.read_csv('data/motos_scooters2.csv'), 'Motocycles data 2', '2')
-load_(pd.read_csv('data/motos_scooters3.csv'), 'Motocycles data 3', '3')
-load_(pd.read_csv('data/motos_scooters4.csv'), 'Motocycles data 4', '4')
-load_(pd.read_csv('data/motos_scooters5.csv'), 'Motocycles data 5', '5')
-
-
-
-
- 
-
-
+def read_all():
+    return pd.read_sql_table("listings", engine)
