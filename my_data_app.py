@@ -7,6 +7,7 @@ import time
 from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin
+import os   # <-- Ajouter cette ligne
 
 # =========================
 # Fonctions de scraping
@@ -168,3 +169,4 @@ with tabs[3]:
     
     st.markdown("### KoboToolbox Form")
     st.markdown("[Ouvrir le formulaire KoboToolbox](https://ee.kobotoolbox.org/x/Sa81fs4S)")
+
