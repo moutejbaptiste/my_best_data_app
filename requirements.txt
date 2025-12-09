@@ -1,10 +1,10 @@
-numpy
-bs4
 requests
-scipy
-matplotlib
+beautifulsoup4
 pandas
+sqlalchemy
 streamlit
-seaborn
-pybase64
-
+plotly
+selenium
+lxml
+tqdm
+python-dotenv
