@@ -161,7 +161,7 @@ with tabs[2]:
         if t != "all": filtered = filtered[filtered['type_norm']==t]
         st.dataframe(filtered)
 
-# ---------- Onglet 4 : Formulaires ----------
+# ---------- Onglet 4 : Formulaires: Google Form and KobotoolBox ----------
 with tabs[3]:
     st.header("Accéder aux formulaires")
     st.markdown("### Google Form")
@@ -169,4 +169,5 @@ with tabs[3]:
     
     st.markdown("### KoboToolbox Form")
     st.markdown("[Ouvrir le formulaire KoboToolbox](https://ee.kobotoolbox.org/x/Sa81fs4S)")
+
 
