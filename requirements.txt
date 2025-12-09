@@ -6,9 +6,3 @@ lxml
 sqlalchemy
 tqdm
 
-streamlit
-pandas
-requests
-beautifulsoup4
-lxml
-sqlalchemy
