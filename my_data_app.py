@@ -1,14 +1,11 @@
 # streamlit_app.py
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import time
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, MetaData, Table
+import os
 import re
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, MetaData, Table
 
-st.set_page_config(page_title="Coinafrica Scraper", layout="wide")
+st.set_page_config(page_title="Coinafrica Scraper & Dashboard", layout="wide")
 
 # =========================
 # DATABASE SETUP (SQLite)
@@ -20,8 +17,8 @@ metadata = MetaData()
 listings = Table(
     "listings", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("category", String(100)),   # vetements-homme, etc
-    Column("type", String(200)),       # clothes / shoes
+    Column("category", String(100)),
+    Column("type", String(200)),
     Column("raw_price", String(100)),
     Column("price", Float, nullable=True),
     Column("address", String(255)),
@@ -32,19 +29,18 @@ listings = Table(
 metadata.create_all(engine)
 
 def insert_rows(df: pd.DataFrame):
-    # --- Fix KeyError : assurer toutes les colonnes attendues ---
     expected_cols = ["category","type","raw_price","address","image_link","source_url"]
     for col in expected_cols:
         if col not in df.columns:
             df[col] = ""
-    df = df[expected_cols]  # réorganiser colonnes
+    df = df[expected_cols]
     df.to_sql("listings", engine, if_exists="append", index=False)
 
 def read_all():
     return pd.read_sql_table("listings", engine)
 
 # =========================
-# DATA CLEANING FUNCTIONS
+# DATA CLEANING
 # =========================
 def parse_price(raw: str):
     if pd.isna(raw): 
@@ -73,124 +69,59 @@ def clean_dataframe(df: pd.DataFrame):
     return df
 
 # =========================
-# SCRAPER (BeautifulSoup)
-# =========================
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; CoinafricaScraper/1.0)"}
-BASE_DELAY = 1.0
-
-CATEGORIES = {
-    "vetements-homme": "https://sn.coinafrique.com/categorie/vetements-homme",
-    "chaussures-homme": "https://sn.coinafrique.com/categorie/chaussures-homme",
-    "vetements-enfants": "https://sn.coinafrique.com/categorie/vetements-enfants",
-    "chaussures-enfants": "https://sn.coinafrique.com/categorie/chaussures-enfants",
-}
-
-def parse_listing(card, category, page_url):
-    title = card.select_one(".listing-title")
-    price = card.select_one(".listing-price")
-    address = card.select_one(".listing-address")
-    img = card.select_one("img")
-    return {
-        "category": category,
-        "type": title.get_text(strip=True) if title else "",
-        "raw_price": price.get_text(strip=True) if price else "",
-        "address": address.get_text(strip=True) if address else "",
-        "image_link": urljoin(page_url, img['src']) if img and img.get('src') else "",
-        "source_url": page_url
-    }
-
-def scrape_category(url, category, max_pages=5):
-    rows = []
-    page = 1
-    next_url = url
-    while next_url and page <= max_pages:
-        r = requests.get(next_url, headers=HEADERS, timeout=20)
-        if r.status_code != 200:
-            st.warning(f"Erreur {r.status_code} pour {next_url}")
-            break
-        soup = BeautifulSoup(r.text, "lxml")
-        cards = soup.select(".listing-card")
-        if not cards:
-            cards = soup.select(".product, .post, .annonce")
-        for c in cards:
-            rows.append(parse_listing(c, category, next_url))
-        nxt = soup.select_one("a.next, a.pagination-next")
-        if nxt and nxt.get('href'):
-            next_url = nxt['href'] if nxt['href'].startswith("http") else urljoin(next_url, nxt['href'])
-        else:
-            next_url = None
-        page += 1
-        time.sleep(BASE_DELAY)
-    return rows
-
-def scrape_all(max_pages=5):
-    all_rows = []
-    for cat, url in CATEGORIES.items():
-        st.info(f"Scraping {cat} ...")
-        rows = scrape_category(url, cat, max_pages=max_pages)
-        all_rows.extend(rows)
-    df = pd.DataFrame(all_rows)
-    df.to_csv("scraped_unclean.csv", index=False)
-    return df
-
-# =========================
 # STREAMLIT APP
 # =========================
-st.title("Coinafrica — Scraper & Dashboard")
+st.title("Coinafrica — Dashboard & Forms")
 
-tabs = st.tabs(["Scrape", "Importer CSV WebScraper", "Dashboard nettoyé", "Formulaire d'évaluation"])
+tabs = st.tabs(["Importer CSV existants", "Dashboard nettoyé", "Formulaires"])
 
+# ----- Onglet 1 : Importer CSV existants -----
 with tabs[0]:
-    st.header("Scraper multi-pages")
-    max_pages = st.number_input("Max pages par catégorie", min_value=1, max_value=50, value=3)
-    if st.button("Lancer le scraping"):
-        with st.spinner("Scraping en cours..."):
-            df = scrape_all(max_pages=max_pages)
-            st.success(f"{len(df)} annonces récupérées")
-            st.dataframe(df.head(50))
-            
-            # --- Fix KeyError ---
-            expected_cols = ["category","type","raw_price","address","image_link","source_url"]
-            for col in expected_cols:
+    st.header("Importer CSV existants depuis le dossier 'data'")
+    data_folder = "data"
+    files = [f for f in os.listdir(data_folder) if f.endswith(".csv")]
+    st.write("Fichiers détectés :", files)
+    
+    selected_files = st.multiselect("Sélectionner les fichiers à importer", options=files)
+    
+    if st.button("Importer dans la DB"):
+        total_rows = 0
+        for file in selected_files:
+            path = os.path.join(data_folder, file)
+            df = pd.read_csv(path)
+            # Déterminer la catégorie depuis le nom de fichier si nécessaire
+            if "vetements-homme" in file.lower():
+                df["category"] = "vetements-homme"
+            elif "chaussures-homme" in file.lower():
+                df["category"] = "chaussures-homme"
+            elif "vetements-enfants" in file.lower():
+                df["category"] = "vetements-enfants"
+            elif "chaussures-enfants" in file.lower():
+                df["category"] = "chaussures-enfants"
+            else:
+                df["category"] = "unknown"
+            # Assurer colonnes obligatoires
+            for col in ["type","raw_price","address","image_link","source_url"]:
                 if col not in df.columns:
                     df[col] = ""
-            insert_rows(df[expected_cols])
-            st.info("Données non nettoyées insérées dans la DB.")
+            insert_rows(df[["category","type","raw_price","address","image_link","source_url"]])
+            total_rows += len(df)
+        st.success(f"{total_rows} lignes importées dans la DB.")
 
+# ----- Onglet 2 : Dashboard -----
 with tabs[1]:
-    st.header("Importer CSV exporté par Web Scraper (non nettoyé)")
-    uploaded = st.file_uploader("Choisir CSV", type=["csv"])
-    if uploaded:
-        df = pd.read_csv(uploaded)
-        st.dataframe(df.head())
-        if st.button("Insérer ce CSV dans la DB"):
-            df2 = df.rename(columns=lambda c: c.strip().lower())
-            mapping = {}
-            for col in df2.columns:
-                if "price" in col: mapping[col] = "raw_price"
-                if "image" in col: mapping[col] = "image_link"
-                if "addr" in col or "location" in col: mapping[col] = "address"
-                if "type" in col or "title" in col: mapping[col] = "type"
-            df2 = df2.rename(columns=mapping)
-            expected_cols = ["category","type","raw_price","address","image_link","source_url"]
-            for col in expected_cols:
-                if col not in df2.columns:
-                    df2[col] = ""
-            insert_rows(df2[expected_cols])
-            st.success("CSV inséré dans la DB.")
-
-with tabs[2]:
-    st.header("Dashboard (données nettoyées)")
+    st.header("Dashboard des données nettoyées")
     df = read_all()
     st.write(f"Données totales : {len(df)} lignes")
     if len(df) > 0:
         df_clean = clean_dataframe(df)
         st.subheader("Aperçu nettoyé")
         st.dataframe(df_clean.head(200))
-        st.subheader("Stats")
+        st.subheader("Statistiques")
         st.metric("Prix moyen", f"{df_clean['price'].mean():.2f}" if not df_clean['price'].isna().all() else "N/A")
         st.write("Répartition par type")
         st.bar_chart(df_clean['type_norm'].value_counts())
+        
         st.subheader("Filtrer par catégorie / type")
         cat = st.selectbox("Catégorie", options=["all"] + sorted(df_clean['category'].dropna().unique().tolist()))
         t = st.selectbox("Type", options=["all"] + sorted(df_clean['type_norm'].dropna().unique().tolist()))
@@ -199,12 +130,11 @@ with tabs[2]:
         if t != "all": sub = sub[sub['type_norm']==t]
         st.dataframe(sub)
 
-with tabs[3]:
-    st.header("Formulaire d'évaluation")
-    name = st.text_input("Nom")
-    rating = st.slider("Note globale", 1, 5, 3)
-    comments = st.text_area("Commentaires")
-    if st.button("Envoyer"):
-        with open("evaluations.csv","a", encoding="utf-8") as f:
-            f.write(f"{name},{rating},{comments}\n")
-        st.success("Merci pour votre retour !")
+# ----- Onglet 3 : Formulaires -----
+with tabs[2]:
+    st.header("Accéder aux formulaires")
+    st.markdown("### Google Form")
+    st.markdown("[Ouvrir le formulaire Google Form](https://docs.google.com/forms/d/e/1FAIpQLScyppuAhSkIxD0lXN9Gqcd9D7KfBnF6AlbID2eRxDaTtkmMog/viewform?usp=header)")
+    
+    st.markdown("### KoboToolbox Form")
+    st.markdown("[Ouvrir le formulaire KoboToolbox](https://ee.kobotoolbox.org/x/Sa81fs4S)")
