@@ -5,3 +5,10 @@ beautifulsoup4
 lxml
 sqlalchemy
 tqdm
+
+streamlit==1.29.0
+pandas==2.1.1
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+sqlalchemy==2.0.21
