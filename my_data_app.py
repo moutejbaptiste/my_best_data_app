@@ -32,6 +32,12 @@ listings = Table(
 metadata.create_all(engine)
 
 def insert_rows(df: pd.DataFrame):
+    # --- Fix KeyError : assurer toutes les colonnes attendues ---
+    expected_cols = ["category","type","raw_price","address","image_link","source_url"]
+    for col in expected_cols:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[expected_cols]  # réorganiser colonnes
     df.to_sql("listings", engine, if_exists="append", index=False)
 
 def read_all():
@@ -142,7 +148,13 @@ with tabs[0]:
             df = scrape_all(max_pages=max_pages)
             st.success(f"{len(df)} annonces récupérées")
             st.dataframe(df.head(50))
-            insert_rows(df[["category","type","raw_price","address","image_link","source_url"]])
+            
+            # --- Fix KeyError ---
+            expected_cols = ["category","type","raw_price","address","image_link","source_url"]
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = ""
+            insert_rows(df[expected_cols])
             st.info("Données non nettoyées insérées dans la DB.")
 
 with tabs[1]:
@@ -160,10 +172,11 @@ with tabs[1]:
                 if "addr" in col or "location" in col: mapping[col] = "address"
                 if "type" in col or "title" in col: mapping[col] = "type"
             df2 = df2.rename(columns=mapping)
-            for c in ["category", "source_url"]:
-                if c not in df2.columns:
-                    df2[c] = "webscraper_import"
-            insert_rows(df2[["category","type","raw_price","address","image_link","source_url"]])
+            expected_cols = ["category","type","raw_price","address","image_link","source_url"]
+            for col in expected_cols:
+                if col not in df2.columns:
+                    df2[col] = ""
+            insert_rows(df2[expected_cols])
             st.success("CSV inséré dans la DB.")
 
 with tabs[2]:
